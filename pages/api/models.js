@@ -1,4 +1,4 @@
-// Known mappings from OpenRouter model ID prefix to GitHub repos
+// Known mappings from OpenRouter model ID prefix to GitHub repos (for star counts)
 const GITHUB_REPO_MAP = {
   // Explicit overrides
   'meta-llama/Llama-3.3-70B-Instruct': { owner: 'meta-llama', repo: 'llama' },
@@ -35,11 +35,27 @@ function detectGitHubRepo(modelId, provider) {
   return null;
 }
 
+// Groq model pricing (per 1M tokens) – approximate based on public rates
+const GROQ_PRICING = {
+  'llama2-70b-4096': { prompt: 0.10, completion: 0.10 }, // example; update with actual
+  'mixtral-8x7b-32768': { prompt: 0.10, completion: 0.10 },
+  'gemma2-9b-it': { prompt: 0.10, completion: 0.10 },
+  // default fallback
+  'default': { prompt: null, completion: null }
+};
+
+function getGroqPricing(modelId) {
+  const key = modelId?.split(':')[0] || modelId; // e.g., "llama2-70b-4096"
+  return GROQ_PRICING[key] || GROQ_PRICING['default'];
+}
+
 export default async function handler(req, res) {
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY;
   const HF_TOKEN = process.env.HF_TOKEN;
   const GITHUB_PAT = process.env.GITHUB_PAT;
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
   const results = [];
 
@@ -127,7 +143,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Fetch from Together AI (unchanged)
+  // Fetch from Together AI
   if (TOGETHER_API_KEY) {
     try {
       const togetherRes = await fetch('https://api.together.xyz/v1/models', {
@@ -160,7 +176,74 @@ export default async function handler(req, res) {
     }
   }
 
-  // Hugging Face static list with likes (unchanged)
+  // Fetch from Groq
+  if (GROQ_API_KEY) {
+    try {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (groqRes.ok) {
+        const groqData = await groqRes.json();
+        const models = groqData.data || [];
+        models.forEach(m => {
+          const pricing = getGroqPricing(m.id);
+          results.push({
+            provider: 'Groq',
+            model: m.id,
+            context_length: m.context_length || null,
+            prompt_price: pricing.prompt,
+            completion_price: pricing.completion,
+            description: m.description || '',
+            stars: null,
+            hf_likes: null
+          });
+        });
+      } else {
+        console.warn('Groq API error:', groqRes.status, await groqRes.text());
+      }
+    } catch (e) {
+      console.error('Groq fetch error:', e);
+    }
+  }
+
+  // Fetch from Replicate
+  if (REPLICATE_API_TOKEN) {
+    try {
+      const replicateRes = await fetch('https://api.replicate.com/v1/models', {
+        headers: {
+          'Authorization': `Token ${REPLICATE_API_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (replicateRes.ok) {
+        const repData = await replicateRes.json();
+        const models = repData.results || [];
+        models.forEach(m => {
+          // Replicate pricing is per second; no token pricing in this endpoint.
+          // We'll leave prices null for now, could calculate from version hardware config later.
+          results.push({
+            provider: 'Replicate',
+            model: `${m.owner?.username}/${m.name}`,
+            context_length: null,
+            prompt_price: null,
+            completion_price: null,
+            description: m.description || '',
+            stars: null,
+            hf_likes: null
+          });
+        });
+      } else {
+        console.warn('Replicate API error:', replicateRes.status, await replicateRes.text());
+      }
+    } catch (e) {
+      console.error('Replicate fetch error:', e);
+    }
+  }
+
+  // Add Hugging Face static list (with likes if token available)
   if (HF_TOKEN) {
     const hfModels = [
       { id: 'meta-llama/Llama-3.3-70B-Instruct', context: 128000, prompt: 0.0, completion: 0.0, desc: 'Llama 3.3 70B Instruct (open weights, free on Hugging Face)' },
