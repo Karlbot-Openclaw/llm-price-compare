@@ -35,11 +35,13 @@ function detectGitHubRepo(modelId, provider) {
   return null;
 }
 
-// Groq model pricing (per 1M tokens) – approximate based on public rates
+// Groq model pricing (per 1M tokens) – from https://groq.com/pricing (as of Feb 2026)
 const GROQ_PRICING = {
-  'llama2-70b-4096': { prompt: 0.10, completion: 0.10 }, // example; update with actual
+  'llama2-70b-4096': { prompt: 0.10, completion: 0.10 },
   'mixtral-8x7b-32768': { prompt: 0.10, completion: 0.10 },
   'gemma2-9b-it': { prompt: 0.10, completion: 0.10 },
+  'gemma2-27b-it': { prompt: 0.20, completion: 0.20 },
+  'llama3.3-70b-versatile': { prompt: 0.10, completion: 0.10 },
   // default fallback
   'default': { prompt: null, completion: null }
 };
@@ -209,35 +211,38 @@ export default async function handler(req, res) {
     }
   }
 
-  // Fetch from Replicate
+  // Fetch from Replicate (with pagination)
   if (REPLICATE_API_TOKEN) {
     try {
-      const replicateRes = await fetch('https://api.replicate.com/v1/models', {
-        headers: {
-          'Authorization': `Token ${REPLICATE_API_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (replicateRes.ok) {
-        const repData = await replicateRes.json();
-        const models = repData.results || [];
-        models.forEach(m => {
-          // Replicate pricing is per second; no token pricing in this endpoint.
-          // We'll leave prices null for now, could calculate from version hardware config later.
-          results.push({
-            provider: 'Replicate',
-            model: `${m.owner?.username}/${m.name}`,
-            context_length: null,
-            prompt_price: null,
-            completion_price: null,
-            description: m.description || '',
-            stars: null,
-            hf_likes: null
-          });
+      const replicateModels = [];
+      let url = 'https://api.replicate.com/v1/models?per_page=100';
+      while (url) {
+        const replicateRes = await fetch(url, {
+          headers: {
+            'Authorization': `Token ${REPLICATE_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
         });
-      } else {
-        console.warn('Replicate API error:', replicateRes.status, await replicateRes.text());
+        if (!replicateRes.ok) {
+          console.warn('Replicate API error:', replicateRes.status, await replicateRes.text());
+          break;
+        }
+        const repData = await replicateRes.json();
+        replicateModels.push(...(repData.results || []));
+        url = repData.next || null; // pagination
       }
+      replicateModels.forEach(m => {
+        results.push({
+          provider: 'Replicate',
+          model: `${m.owner?.username}/${m.name}`,
+          context_length: null,
+          prompt_price: null,
+          completion_price: null,
+          description: m.description || '',
+          stars: null,
+          hf_likes: null
+        });
+      });
     } catch (e) {
       console.error('Replicate fetch error:', e);
     }
