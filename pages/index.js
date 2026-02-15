@@ -1,18 +1,9 @@
 import { useEffect, useState } from 'react';
 
-type Model = {
-  provider: string;
-  model: string;
-  context_length: number | null;
-  prompt_price: number | null;
-  completion_price: number | null;
-  description: string;
-};
-
 export default function Home() {
-  const [models, setModels] = useState<Model[]>([]);
+  const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sortKey, setSortKey] = useState<keyof Model>('model');
+  const [sortKey, setSortKey] = useState('model');
   const [sortAsc, setSortAsc] = useState(true);
   const [freeOnly, setFreeOnly] = useState(false);
 
@@ -35,12 +26,12 @@ export default function Home() {
       const aVal = a[sortKey] == null ? 0 : a[sortKey];
       const bVal = b[sortKey] == null ? 0 : b[sortKey];
       if (typeof aVal === 'string') {
-        return sortAsc ? aVal.localeCompare(bVal as string) : (bVal as string).localeCompare(aVal);
+        return sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
-      return sortAsc ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+      return sortAsc ? aVal - bVal : bVal - aVal;
     });
 
-  const handleSort = (key: keyof Model) => {
+  const handleSort = (key) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else {
       setSortKey(key);
