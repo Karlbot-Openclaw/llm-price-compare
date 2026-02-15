@@ -1,24 +1,37 @@
-// Mapping of known OpenRouter model IDs to GitHub repos (for star counts)
+// Known mappings from OpenRouter model ID prefix to GitHub repos
 const GITHUB_REPO_MAP = {
-  // Llama models
+  // Explicit overrides
   'meta-llama/Llama-3.3-70B-Instruct': { owner: 'meta-llama', repo: 'llama' },
-  'meta-llama/Llama-3.2-3B-Instruct': { owner: 'meta-llama', repo: 'llama' },
-  // Mistral
   'mistralai/Mistral-7B-Instruct-v0.2': { owner: 'mistralai', repo: 'mistral-src' },
-  'mistralai/Mixtral-8x7B-Instruct-v0.1': { owner: 'mistralai', repo: 'mistral-src' },
-  // Qwen
   'qwen/Qwen3-Max-Thinking': { owner: 'QwenLM', repo: 'Qwen' },
-  'qwen/Qwen3-235B-Instruct': { owner: 'QwenLM', repo: 'Qwen' },
   // Add more as needed
 };
 
-// Default: try to infer from model ID if it looks like "owner/repo" pattern
-function inferGitHubRepo(modelId) {
-  if (!modelId) return null;
-  const parts = modelId.split('/');
-  if (parts.length === 2) {
-    return { owner: parts[0], repo: parts[1] };
+// Heuristic: based on provider and model ID fragments
+function detectGitHubRepo(modelId, provider) {
+  const id = (modelId || '').toLowerCase();
+  const prov = (provider || '').toLowerCase();
+
+  // Meta Llama
+  if (prov.includes('meta-llama') || id.includes('llama')) {
+    return { owner: 'meta-llama', repo: 'llama' };
   }
+  // Mistral
+  if (prov.includes('mistralai') || id.includes('mistral')) {
+    return { owner: 'mistralai', repo: 'mistral-src' };
+  }
+  // Qwen
+  if (prov.includes('qwen') || id.includes('qwen')) {
+    return { owner: 'QwenLM', repo: 'Qwen' };
+  }
+  // Google? gemma, etc.
+  if (prov.includes('google') || id.includes('gemma')) {
+    return { owner: 'google', repo: 'gemma' };
+  }
+  if (prov.includes('deepseek') || id.includes('deepseek')) {
+    return { owner: 'deepseek-ai', repo: 'DeepSeek-V3' }; // not sure, approximate
+  }
+  // Add more patterns as needed
   return null;
 }
 
@@ -26,11 +39,10 @@ export default async function handler(req, res) {
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY;
   const HF_TOKEN = process.env.HF_TOKEN;
-  const GITHUB_PAT = process.env.GITHUB_PAT; // optional, for higher rate limits
+  const GITHUB_PAT = process.env.GITHUB_PAT;
 
   const results = [];
 
-  // Helper: fetch GitHub stars for a repo
   async function fetchGitHubStars(owner, repo) {
     try {
       const url = `https://api.github.com/repos/${owner}/${repo}`;
@@ -42,6 +54,8 @@ export default async function handler(req, res) {
       if (response.ok) {
         const data = await response.json();
         return data.stargazers_count || 0;
+      } else {
+        console.warn(`GitHub stars fetch failed for ${owner}/${repo}: ${response.status}`);
       }
     } catch (e) {
       console.error(`GitHub stars fetch error for ${owner}/${repo}:`, e.message);
@@ -61,17 +75,16 @@ export default async function handler(req, res) {
       if (orRes.ok) {
         const orData = await orRes.json();
         const models = orData.data || [];
-        // Process in parallel with limited concurrency
         const promises = models.map(async (m) => {
           const pricing = m.pricing || {};
           let stars = null;
           let hfLikes = null;
           const modelId = m.id || m.name;
 
-          // GitHub stars via mapping or inference
+          // Determine GitHub repo
           let ghRepo = GITHUB_REPO_MAP[modelId];
           if (!ghRepo) {
-            ghRepo = inferGitHubRepo(modelId);
+            ghRepo = detectGitHubRepo(modelId, m.id?.split('/')[0] || '');
           }
           if (ghRepo) {
             stars = await fetchGitHubStars(ghRepo.owner, ghRepo.repo);
@@ -114,7 +127,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Fetch from Together AI (same as before)
+  // Fetch from Together AI (unchanged)
   if (TOGETHER_API_KEY) {
     try {
       const togetherRes = await fetch('https://api.together.xyz/v1/models', {
@@ -147,7 +160,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Add Hugging Face static list (with likes if token available)
+  // Hugging Face static list with likes (unchanged)
   if (HF_TOKEN) {
     const hfModels = [
       { id: 'meta-llama/Llama-3.3-70B-Instruct', context: 128000, prompt: 0.0, completion: 0.0, desc: 'Llama 3.3 70B Instruct (open weights, free on Hugging Face)' },
