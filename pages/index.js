@@ -12,7 +12,6 @@ export default function Home() {
   const [selectedModel, setSelectedModel] = useState(null);
 
   useEffect(() => {
-    // Check stored theme preference
     const saved = localStorage.getItem('theme');
     if (saved === 'dark') {
       setDarkMode(true);
@@ -121,6 +120,8 @@ export default function Home() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer" onClick={() => handleSort('context_length')}>Context {sortKey==='context_length'?(sortAsc?'↑':'↓'):''}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer" onClick={() => handleSort('prompt_price')}>Prompt $/1M {sortKey==='prompt_price'?(sortAsc?'↑':'↓'):''}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer" onClick={() => handleSort('completion_price')}>Completion $/1M {sortKey==='completion_price'?(sortAsc?'↑':'↓'):''}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer" onClick={() => handleSort('stars')}>Stars {sortKey==='stars'?(sortAsc?'↑':'↓'):''}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer" onClick={() => handleSort('hf_likes')}>HF Likes {sortKey==='hf_likes'?(sortAsc?'↑':'↓'):''}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Description</th>
               </tr>
             </thead>
@@ -137,6 +138,8 @@ export default function Home() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{m.context_length?.toLocaleString() || '—'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{m.prompt_price != null ? `$${m.prompt_price.toFixed(4)}` : '—'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{m.completion_price != null ? `$${m.completion_price.toFixed(4)}` : '—'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{m.stars != null ? m.stars.toLocaleString() : '—'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{m.hf_likes != null ? m.hf_likes.toLocaleString() : '—'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-md truncate" title={m.description}>{m.description || '—'}</td>
                 </tr>
               ))}
@@ -151,7 +154,9 @@ export default function Home() {
             <h2 className="text-xl font-bold mb-2 text-gray-900 dark:text-gray-100">{selectedModel.provider} — {selectedModel.model}</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-1">Context: {selectedModel.context_length?.toLocaleString() || '—'}</p>
             <p className="text-gray-600 dark:text-gray-400 mb-1">Prompt: ${selectedModel.prompt_price != null ? selectedModel.prompt_price.toFixed(4) : '—'} / 1M tokens</p>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">Completion: ${selectedModel.completion_price != null ? selectedModel.completion_price.toFixed(4) : '—'} / 1M tokens</p>
+            <p className="text-gray-600 dark:text-gray-400 mb-1">Completion: ${selectedModel.completion_price != null ? selectedModel.completion_price.toFixed(4) : '—'} / 1M tokens</p>
+            <p className="text-gray-600 dark:text-gray-400 mb-1">Stars: {selectedModel.stars != null ? selectedModel.stars.toLocaleString() : '—'}</p>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">HF Likes: {selectedModel.hf_likes != null ? selectedModel.hf_likes.toLocaleString() : '—'}</p>
             <div className="border-t pt-4">
               <h3 className="font-semibold mb-2 text-gray-900 dark:text-gray-100">Description</h3>
               <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line">{selectedModel.description || 'No description provided.'}</p>

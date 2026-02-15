@@ -1,9 +1,53 @@
+// Mapping of known OpenRouter model IDs to GitHub repos (for star counts)
+const GITHUB_REPO_MAP = {
+  // Llama models
+  'meta-llama/Llama-3.3-70B-Instruct': { owner: 'meta-llama', repo: 'llama' },
+  'meta-llama/Llama-3.2-3B-Instruct': { owner: 'meta-llama', repo: 'llama' },
+  // Mistral
+  'mistralai/Mistral-7B-Instruct-v0.2': { owner: 'mistralai', repo: 'mistral-src' },
+  'mistralai/Mixtral-8x7B-Instruct-v0.1': { owner: 'mistralai', repo: 'mistral-src' },
+  // Qwen
+  'qwen/Qwen3-Max-Thinking': { owner: 'QwenLM', repo: 'Qwen' },
+  'qwen/Qwen3-235B-Instruct': { owner: 'QwenLM', repo: 'Qwen' },
+  // Add more as needed
+};
+
+// Default: try to infer from model ID if it looks like "owner/repo" pattern
+function inferGitHubRepo(modelId) {
+  if (!modelId) return null;
+  const parts = modelId.split('/');
+  if (parts.length === 2) {
+    return { owner: parts[0], repo: parts[1] };
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
   const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY;
   const HF_TOKEN = process.env.HF_TOKEN;
+  const GITHUB_PAT = process.env.GITHUB_PAT; // optional, for higher rate limits
 
   const results = [];
+
+  // Helper: fetch GitHub stars for a repo
+  async function fetchGitHubStars(owner, repo) {
+    try {
+      const url = `https://api.github.com/repos/${owner}/${repo}`;
+      const headers = { 'Accept': 'application/vnd.github+json' };
+      if (GITHUB_PAT) {
+        headers['Authorization'] = `Bearer ${GITHUB_PAT}`;
+      }
+      const response = await fetch(url, { headers });
+      if (response.ok) {
+        const data = await response.json();
+        return data.stargazers_count || 0;
+      }
+    } catch (e) {
+      console.error(`GitHub stars fetch error for ${owner}/${repo}:`, e.message);
+    }
+    return null;
+  }
 
   // Fetch from OpenRouter
   if (OPENROUTER_API_KEY) {
@@ -16,17 +60,52 @@ export default async function handler(req, res) {
       });
       if (orRes.ok) {
         const orData = await orRes.json();
-        (orData.data || []).forEach(m => {
+        const models = orData.data || [];
+        // Process in parallel with limited concurrency
+        const promises = models.map(async (m) => {
           const pricing = m.pricing || {};
-          results.push({
+          let stars = null;
+          let hfLikes = null;
+          const modelId = m.id || m.name;
+
+          // GitHub stars via mapping or inference
+          let ghRepo = GITHUB_REPO_MAP[modelId];
+          if (!ghRepo) {
+            ghRepo = inferGitHubRepo(modelId);
+          }
+          if (ghRepo) {
+            stars = await fetchGitHubStars(ghRepo.owner, ghRepo.repo);
+          }
+
+          // Hugging Face likes if there's a HF ID
+          const hfId = m.hugging_face_id;
+          if (hfId && HF_TOKEN) {
+            try {
+              const hfRes = await fetch(`https://huggingface.co/api/models/${hfId}`, {
+                headers: { 'Authorization': `Bearer ${HF_TOKEN}` }
+              });
+              if (hfRes.ok) {
+                const hfData = await hfRes.json();
+                hfLikes = hfData.likes || 0;
+              }
+            } catch (e) {
+              console.error(`HF likes fetch error for ${hfId}:`, e.message);
+            }
+          }
+
+          return {
             provider: 'OpenRouter',
-            model: m.id || m.name,
+            model: modelId,
             context_length: m.context_length || null,
             prompt_price: pricing.prompt ? parseFloat(pricing.prompt) * 1_000_000 : null,
             completion_price: pricing.completion ? parseFloat(pricing.completion) * 1_000_000 : null,
-            description: m.description || ''
-          });
+            description: m.description || '',
+            stars,
+            hf_likes: hfLikes
+          };
         });
+        const orResults = await Promise.all(promises);
+        results.push(...orResults);
       } else {
         console.warn('OpenRouter API error:', orRes.status, await orRes.text());
       }
@@ -35,7 +114,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Fetch from Together AI
+  // Fetch from Together AI (same as before)
   if (TOGETHER_API_KEY) {
     try {
       const togetherRes = await fetch('https://api.together.xyz/v1/models', {
@@ -48,7 +127,6 @@ export default async function handler(req, res) {
         const togetherData = await togetherRes.json();
         const models = togetherData.data || togetherData || [];
         models.forEach(m => {
-          // Together may not return pricing; set to null if missing
           const pricing = m.pricing || {};
           results.push({
             provider: 'Together AI',
@@ -56,7 +134,9 @@ export default async function handler(req, res) {
             context_length: m.max_model_len || m.context_length || null,
             prompt_price: pricing.prompt ? parseFloat(pricing.prompt) * 1_000_000 : null,
             completion_price: pricing.completion ? parseFloat(pricing.completion) * 1_000_000 : null,
-            description: m.description || ''
+            description: m.description || '',
+            stars: null,
+            hf_likes: null
           });
         });
       } else {
@@ -67,26 +147,37 @@ export default async function handler(req, res) {
     }
   }
 
-  // Add Hugging Face static list (popular models with approximate pricing)
-  // Note: HF pricing is per-inference; we map approximate per-1M token rates based on typical provider costs.
+  // Add Hugging Face static list (with likes if token available)
   if (HF_TOKEN) {
-    // We could optionally call HF API to list models, but pricing is not standardized; use curated list.
     const hfModels = [
       { id: 'meta-llama/Llama-3.3-70B-Instruct', context: 128000, prompt: 0.0, completion: 0.0, desc: 'Llama 3.3 70B Instruct (open weights, free on Hugging Face)' },
       { id: 'mistralai/Mistral-7B-Instruct-v0.2', context: 32768, prompt: 0.0, completion: 0.0, desc: 'Mistral 7B Instruct (open weights)' },
       { id: 'gpt2', context: 1024, prompt: 0.0, completion: 0.0, desc: 'GPT-2 (open, small)' },
-      // Add more as needed
     ];
-    hfModels.forEach(m => {
+    for (const m of hfModels) {
+      let hfLikes = null;
+      try {
+        const hfRes = await fetch(`https://huggingface.co/api/models/${m.id}`, {
+          headers: { 'Authorization': `Bearer ${HF_TOKEN}` }
+        });
+        if (hfRes.ok) {
+          const hfData = await hfRes.json();
+          hfLikes = hfData.likes || 0;
+        }
+      } catch (e) {
+        console.error(`HF likes fetch error for ${m.id}:`, e.message);
+      }
       results.push({
         provider: 'Hugging Face',
         model: m.id,
         context_length: m.context,
         prompt_price: m.prompt,
         completion_price: m.completion,
-        description: m.desc
+        description: m.desc,
+        stars: null,
+        hf_likes: hfLikes
       });
-    });
+    }
   }
 
   res.setHeader('Cache-Control', 's-maxage:60, stale-while-revalidate');
