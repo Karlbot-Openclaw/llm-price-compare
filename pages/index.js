@@ -7,6 +7,7 @@ export default function Home() {
   const [sortKey, setSortKey] = useState('model');
   const [sortAsc, setSortAsc] = useState(true);
   const [freeOnly, setFreeOnly] = useState(false);
+  const [providerFilter, setProviderFilter] = useState('All');
   const [darkMode, setDarkMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState(null);
 
@@ -44,7 +45,9 @@ export default function Home() {
       });
   }, []);
 
+  const providers = ['All', ...new Set(models.map(m => m.provider))];
   const sorted = [...models]
+    .filter(m => providerFilter === 'All' || m.provider === providerFilter)
     .filter(m => !freeOnly || (m.prompt_price === 0 && m.completion_price === 0))
     .sort((a, b) => {
       const aVal = a[sortKey] == null ? 0 : a[sortKey];
@@ -68,7 +71,7 @@ export default function Home() {
 
   return (
     <div className={`min-h-screen p-4 md:p-8 ${darkMode ? 'dark bg-gray-900 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold mb-2">LLM Price Comparison</h1>
@@ -83,16 +86,27 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="mb-4 flex items-center gap-4">
-          <label className="inline-flex items-center">
-            <input
-              type="checkbox"
-              checked={freeOnly}
-              onChange={e => setFreeOnly(e.target.checked)}
-              className="form-checkbox h-5 w-5 text-blue-600"
-            />
-            <span className="ml-2 text-gray-700 dark:text-gray-300">Show free models only</span>
-          </label>
+        <div className="mb-4 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-4">
+            <label className="inline-flex items-center">
+              <input
+                type="checkbox"
+                checked={freeOnly}
+                onChange={e => setFreeOnly(e.target.checked)}
+                className="form-checkbox h-5 w-5 text-blue-600"
+              />
+              <span className="ml-2 text-gray-700 dark:text-gray-300">Free only</span>
+            </label>
+            <select
+              value={providerFilter}
+              onChange={e => setProviderFilter(e.target.value)}
+              className="border rounded px-3 py-1 text-sm bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+            >
+              {providers.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
           <span className="text-sm text-gray-500 dark:text-gray-400">
             {loading ? 'Loading...' : `${sorted.length} models`}
           </span>
